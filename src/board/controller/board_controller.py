@@ -3,8 +3,8 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from src.board.models import PostCreate, PostUpdate
-from src.board.services import BoardService
+from src.board.model import PostCreate, PostUpdate
+from src.board.service import BoardService
 
 
 class PostCreateRequest(BaseModel):
@@ -26,7 +26,7 @@ board_router = APIRouter(prefix="/api/board", tags=["board"])
 
 def get_board_service() -> BoardService:
     """BoardService 의존성 (실제 앱에서는 DI 컨테이너 사용 권장)."""
-    from src.board.repositories import BoardRepository
+    from src.board.repository import BoardRepository
 
     return BoardService(BoardRepository())
 

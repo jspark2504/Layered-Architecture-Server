@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from src.board.models import Post, PostCreate, PostUpdate
+from src.board.model import Post, PostCreate, PostUpdate
 
 
 class BoardRepository:

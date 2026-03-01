@@ -2,7 +2,7 @@
 
 from fastapi import FastAPI
 
-from src.board.controllers import board_router
+from src.board.controller import board_router
 
 app = FastAPI(title="게시판 API", version="1.0.0")
 app.include_router(board_router)

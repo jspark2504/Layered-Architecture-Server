@@ -2,8 +2,8 @@
 
 from typing import List, Optional
 
-from src.board.models import Post, PostCreate, PostUpdate
-from src.board.repositories import BoardRepository
+from src.board.model import Post, PostCreate, PostUpdate
+from src.board.repository import BoardRepository
 
 
 class BoardService:

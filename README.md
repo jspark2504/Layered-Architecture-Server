@@ -33,16 +33,16 @@ Layered-Architecture-Server/
 └── src/
     └── board/
         ├── __init__.py
-        ├── models/              # 도메인 모델
+        ├── model/               # 도메인 모델
         │   ├── __init__.py
         │   └── post.py          # Post, PostCreate, PostUpdate
-        ├── repositories/        # Repository 레이어 (데이터 접근)
+        ├── repository/          # Repository 레이어 (데이터 접근)
         │   ├── __init__.py
         │   └── board_repository.py
-        ├── services/            # Service 레이어 (비즈니스 로직)
+        ├── service/             # Service 레이어 (비즈니스 로직)
         │   ├── __init__.py
         │   └── board_service.py
-        └── controllers/        # Controller 레이어 (HTTP API)
+        └── controller/          # Controller 레이어 (HTTP API)
             ├── __init__.py
             └── board_controller.py
 ```
@@ -53,25 +53,25 @@ Layered-Architecture-Server/
 
 ### 1. Controller (컨트롤러)
 
-- **위치**: `src/board/controllers/board_controller.py`
+- **위치**: `src/board/controller/board_controller.py`
 - **역할**: HTTP 요청 수신, 파라미터/바디 검증, Service 호출, HTTP 응답 반환
 - **네이밍**: `*_controller.py`, 라우터는 `*_router` 또는 `board_router`
 
 ### 2. Service (서비스)
 
-- **위치**: `src/board/services/board_service.py`
+- **위치**: `src/board/service/board_service.py`
 - **역할**: 비즈니스 로직 (유효성 검사, 트랜잭션 경계 등). Repository를 통해 데이터 접근
 - **네이밍**: `*_service.py`, 클래스는 `BoardService`
 
 ### 3. Repository (리포지토리)
 
-- **위치**: `src/board/repositories/board_repository.py`
+- **위치**: `src/board/repository/board_repository.py`
 - **역할**: 데이터 저장/조회/수정/삭제. DB 또는 인메모리 스토리지 접근만 담당
 - **네이밍**: `*_repository.py`, 클래스는 `BoardRepository`
 
-### 4. Models (모델)
+### 4. Model (모델)
 
-- **위치**: `src/board/models/post.py`
+- **위치**: `src/board/model/post.py`
 - **역할**: 도메인 엔티티(Post)와 DTO(PostCreate, PostUpdate) 정의
 
 **데이터 흐름**: `Controller → Service → Repository → (DB/Storage)`
