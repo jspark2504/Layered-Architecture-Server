@@ -1,27 +1,84 @@
-name: Deploy to EC2
+name: Python FastAPI CI/CD
 
 on:
   push:
-    branches:
-      - main
+    branches: [ master, container ]
+  pull_request:
+    branches: [ master ]
 
 jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.version.outputs.version }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Generate version
+      id: version
+      run: echo "version=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+        IMAGE_TAG: ${{ steps.version.outputs.version }}
+      run: |
+        docker buildx create --use
+
+        docker buildx build \
+          --platform linux/amd64 \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+          --push .
+
   deploy:
+    needs: build-and-push
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Deploy
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_KEY }}
-          script: |
-            cd ~/app/Layered-Architecture-Server
-            git pull origin main
-            source venv/bin/activate
-            pip install -r requirements.txt
-            pm2 restart layered-server
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+    - name: Deploy to EC2
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+        IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+        EC2_HOST: ${{ secrets.EC2_HOST }}
+        EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
+      run: |
+        ssh -i ~/.ssh/id_rsa $EC2_USERNAME@$EC2_HOST "\
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${ECR_REGISTRY} && \
+          docker pull ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} && \
+          docker rm -f fastapi-server || true && \
+          docker run -d -p 8000:8000 --name fastapi-server ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} && \
+          docker image prune -f"
