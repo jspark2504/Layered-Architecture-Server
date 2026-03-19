@@ -1,4 +1,4 @@
-# 게시판 API (Layered Architecture)!
+# 게시판 API (Layered Architecture)
 
 Python + FastAPI 기반 **레이어드 아키텍처** 게시판 서버 프로젝트입니다.
 
