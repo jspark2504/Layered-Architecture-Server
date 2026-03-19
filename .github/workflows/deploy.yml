@@ -75,39 +75,54 @@ jobs:
 
         cd ~/app || mkdir ~/app && cd ~/app
 
-        # docker-compose 파일 생성
+        # docker-compose.yml 생성
         cat > docker-compose.yml <<EOL
-        version: "3"
         services:
           web:
             image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+            container_name: fastapi-app
             ports:
               - "8000:8000"
             restart: always
             depends_on:
               - db
+            environment:
+              DB_HOST: db
+              DB_USER: root
+              DB_PASSWORD: pass
+              DB_NAME: testdb
 
           db:
-            image: postgres:15
+            image: mysql:8
+            container_name: mysql-db
             restart: always
             environment:
-              POSTGRES_USER: user
-              POSTGRES_PASSWORD: pass
-              POSTGRES_DB: mydb
+              MYSQL_ROOT_PASSWORD: pass
+              MYSQL_DATABASE: testdb
             ports:
-              - "5432:5432"
+              - "3306:3306"
+            volumes:
+              - mysql-data:/var/lib/mysql
+
+        volumes:
+          mysql-data:
         EOL
+
+        # AWS 인증 파일 생성 (이거 추가 중요)
+        mkdir -p ~/.aws
+        echo "[default]
+        aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        region=${{ secrets.AWS_REGION }}" > ~/.aws/credentials
 
         # ECR 로그인
         aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
         docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
-        # 최신 이미지 pull
-        docker compose pull
-
-        # 재배포
-        docker compose down
-        docker compose up -d
+        # docker-compose 실행
+        docker-compose pull
+        docker-compose down
+        docker-compose up -d
 
         # 정리
         docker image prune -f
