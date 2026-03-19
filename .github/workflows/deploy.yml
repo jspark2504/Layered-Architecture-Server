@@ -1,16 +1,62 @@
-name: FastAPI Docker CI/CD
+name: FastAPI CI/CD with ECR
 
 on:
   push:
     branches: [ main ]
 
 jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.version.outputs.version }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Generate version
+      id: version
+      run: echo "version=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Login to ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and Push Image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+        IMAGE_TAG: ${{ steps.version.outputs.version }}
+      run: |
+        docker buildx create --use
+        docker buildx build \
+          --platform linux/amd64 \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+          --push .
+
   deploy:
+    needs: build-and-push
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Login to ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
 
     - name: Setup SSH
       run: |
@@ -19,26 +65,51 @@ jobs:
         chmod 600 ~/.ssh/id_rsa
         ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-    - name: Deploy to EC2
+    - name: Deploy to EC2 (docker-compose)
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+        IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
       run: |
-        ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} << 'EOF'
+        ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} << EOF
 
         cd ~/app || mkdir ~/app && cd ~/app
 
-        if [ ! -d "Layered-Architecture-Server" ]; then
-          git clone https://github.com/jspark2504/Layered-Architecture-Server.git
-        fi
+        # docker-compose 파일 생성
+        cat > docker-compose.yml <<EOL
+        version: "3"
+        services:
+          web:
+            image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+            ports:
+              - "8000:8000"
+            restart: always
+            depends_on:
+              - db
 
-        cd Layered-Architecture-Server
+          db:
+            image: postgres:15
+            restart: always
+            environment:
+              POSTGRES_USER: user
+              POSTGRES_PASSWORD: pass
+              POSTGRES_DB: mydb
+            ports:
+              - "5432:5432"
+        EOL
 
-        git pull origin master
+        # ECR 로그인
+        aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+        docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
-        docker rm -f fastapi-server || true
+        # 최신 이미지 pull
+        docker compose pull
 
-        docker build -t fastapi-server .
+        # 재배포
+        docker compose down
+        docker compose up -d
 
-        docker run -d -p 8000:8000 --name fastapi-server fastapi-server
-
+        # 정리
         docker image prune -f
 
         EOF
